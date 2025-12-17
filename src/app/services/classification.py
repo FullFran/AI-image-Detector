@@ -112,3 +112,75 @@ class ClassificationService:
             "probability_fake": probabilities[1],
             "features": features,
         }
+
+    def retrain(self):
+        """Re-entrena el modelo con los datos actuales en data/train/."""
+        print("Re-training model with current data...")
+        self.model = self._train_model()
+        print("Model re-trained successfully.")
+        return True
+
+    def train_from_arrays(self, real_images: list, fake_images: list) -> dict:
+        """
+        Entrena el modelo directamente desde arrays de imágenes en memoria.
+        real_images: lista de arrays numpy (imágenes reales)
+        fake_images: lista de arrays numpy (imágenes IA/fake)
+        """
+        if len(real_images) < 1 or len(fake_images) < 1:
+            return {
+                "success": False,
+                "error": "Se necesita al menos 1 imagen de cada clase.",
+            }
+
+        data = []
+
+        # Procesar reales
+        for img in real_images:
+            try:
+                res = self.detector.analyze(img)
+                feats = res["features"].copy()
+                feats["label"] = 0  # REAL
+                data.append(feats)
+            except Exception as e:
+                print(f"Error procesando imagen real: {e}")
+
+        # Procesar fakes
+        for img in fake_images:
+            try:
+                res = self.detector.analyze(img)
+                feats = res["features"].copy()
+                feats["label"] = 1  # FAKE
+                data.append(feats)
+            except Exception as e:
+                print(f"Error procesando imagen fake: {e}")
+
+        if len(data) < 2:
+            return {
+                "success": False,
+                "error": "No se pudieron procesar suficientes imágenes.",
+            }
+
+        df_train = pd.DataFrame(data)
+        feature_cols = [c for c in df_train.columns if c != "label"]
+        X_train = df_train[feature_cols].values
+        y_train = df_train["label"].values
+
+        # Verificar que hay ambas clases
+        if len(set(y_train)) < 2:
+            return {
+                "success": False,
+                "error": "Se necesitan imágenes de ambas clases (real y fake).",
+            }
+
+        clf = RandomForestClassifier(n_estimators=200, random_state=42, max_depth=10)
+        clf.fit(X_train, y_train)
+
+        self.model = clf
+        self.feature_cols = feature_cols
+
+        return {
+            "success": True,
+            "n_real": int(sum(y_train == 0)),
+            "n_fake": int(sum(y_train == 1)),
+            "total_samples": len(y_train),
+        }

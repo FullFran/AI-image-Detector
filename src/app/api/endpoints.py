@@ -1,5 +1,6 @@
 import io
 import time
+from typing import List
 
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -76,5 +77,77 @@ async def analyze_visual(file: UploadFile = File(...)):
 
         return StreamingResponse(buf, media_type="image/png")
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/train")
+async def train_model(
+    real_images: List[UploadFile] = File(
+        ..., description="Imágenes reales (fotos de cámara)"
+    ),
+    fake_images: List[UploadFile] = File(..., description="Imágenes generadas por IA"),
+):
+    """
+    Entrena el modelo con las imágenes proporcionadas.
+
+    - **real_images**: Lista de archivos de imagen que son fotografías reales.
+    - **fake_images**: Lista de archivos de imagen generadas por IA.
+
+    El modelo se re-entrena con estos datos y queda listo para clasificar.
+    """
+    service = ClassificationService()
+
+    try:
+        # Procesar imágenes reales
+        real_arrays = []
+        for file in real_images:
+            contents = await file.read()
+            image = Image.open(io.BytesIO(contents))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            real_arrays.append(np.array(image))
+
+        # Procesar imágenes fake
+        fake_arrays = []
+        for file in fake_images:
+            contents = await file.read()
+            image = Image.open(io.BytesIO(contents))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            fake_arrays.append(np.array(image))
+
+        # Entrenar
+        result = service.train_from_arrays(real_arrays, fake_arrays)
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return {
+            "status": "success",
+            "message": "Modelo entrenado correctamente",
+            "n_real_images": result["n_real"],
+            "n_fake_images": result["n_fake"],
+            "total_training_samples": result["total_samples"],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/retrain")
+async def retrain_from_folders():
+    """
+    Re-entrena el modelo usando las imágenes en data/train/real y data/train/fake.
+    """
+    service = ClassificationService()
+    try:
+        service.retrain()
+        return {
+            "status": "success",
+            "message": "Modelo re-entrenado desde carpetas data/train/",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

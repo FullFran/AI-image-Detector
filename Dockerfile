@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY setup.py .
 COPY data/ ./data/
+COPY models/ ./models/
 
 # Instalar el paquete local
 RUN pip install -e .

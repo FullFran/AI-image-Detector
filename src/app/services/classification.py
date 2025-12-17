@@ -20,18 +20,52 @@ class ClassificationService:
         return cls._instance
 
     def _initialize(self):
-        print("Initializing ClassificationService... Training model...")
+        print("Initializing ClassificationService...")
         self.detector = GradientCovarianceDetector()
-        self.model = self._train_model()
-        print("Model trained.")
+        # Definir columnas de features explícitamente para asegurar compatibilidad con pickle
+        self.feature_cols = [
+            "lambda1",
+            "lambda2",
+            "trace",
+            "determinant",
+            "eigenvalue_ratio",
+            "anisotropy",
+            "eccentricity",
+            "frobenius_norm",
+            "condition_number",
+            "covariance_xy",
+            "variance_x",
+            "variance_y",
+            "differential_entropy",
+        ]
+        self.model = self._load_or_train_model()
+
+    def _load_or_train_model(self):
+        # 1. Intentar cargar modelo guardado
+        import pickle
+
+        # Ruta: root/src/app/services/classification.py -> root/models/classifier.pkl
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+        model_path = os.path.join(root_dir, "models", "classifier.pkl")
+
+        if os.path.exists(model_path):
+            print(f"Loading pre-trained model from {model_path}...")
+            try:
+                with open(model_path, "rb") as f:
+                    model = pickle.load(f)
+                print("Pre-trained model loaded successfully.")
+                return model
+            except Exception as e:
+                print(f"Error loading model: {e}. Falling back to training.")
+
+        print("No pre-trained model found or error loading. Training new model...")
+        return self._train_model()
 
     def _train_model(self):
         # Intentar cargar datos reales desde data/train
         # Buscamos la carpeta data relativa a la raiz del proyecto
-        # Estructura: root/src/app/services/classification.py -> subimos 4 niveles para root
-        root_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../../../")
-        )
+        # Estructura: root/src/app/services/classification.py -> subimos 3 niveles para root
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
         real_dir = os.path.join(root_dir, "data/train/real")
         fake_dir = os.path.join(root_dir, "data/train/fake")
 

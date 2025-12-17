@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_URL = `${API_BASE}/api/v1`;
+
+type BackendStatus = "sleeping" | "waking" | "ready" | "error";
 
 interface ClassificationResult {
   prediction: string;
@@ -19,6 +22,46 @@ export default function Home() {
   const [visualResult, setVisualResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Estado del backend
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("sleeping");
+  const [wakeStartTime, setWakeStartTime] = useState<number | null>(null);
+
+  // Despertar el backend al cargar la página
+  useEffect(() => {
+    const wakeUpBackend = async () => {
+      setBackendStatus("waking");
+      setWakeStartTime(Date.now());
+      
+      try {
+        const response = await fetch(`${API_BASE}/`, {
+          method: "GET",
+        });
+        
+        if (response.ok) {
+          setBackendStatus("ready");
+        } else {
+          setBackendStatus("error");
+        }
+      } catch {
+        // Reintentar después de 5 segundos (el backend puede estar arrancando)
+        setTimeout(async () => {
+          try {
+            const retryResponse = await fetch(`${API_BASE}/`);
+            if (retryResponse.ok) {
+              setBackendStatus("ready");
+            } else {
+              setBackendStatus("error");
+            }
+          } catch {
+            setBackendStatus("error");
+          }
+        }, 5000);
+      }
+    };
+
+    wakeUpBackend();
+  }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -33,6 +76,12 @@ export default function Home() {
 
   const handleClassify = async () => {
     if (!file) return;
+    
+    if (backendStatus !== "ready") {
+      setError("El servidor aún está arrancando. Espera unos segundos...");
+      return;
+    }
+    
     setLoading(true);
     setError(null);
 
@@ -40,7 +89,6 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", file);
 
-      // Clasificación JSON
       const response = await fetch(`${API_URL}/classify`, {
         method: "POST",
         body: formData,
@@ -71,10 +119,57 @@ export default function Home() {
   };
 
   const isPredictionReal = result?.prediction === "REAL";
+  
+  const getElapsedTime = () => {
+    if (!wakeStartTime) return 0;
+    return Math.floor((Date.now() - wakeStartTime) / 1000);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="container mx-auto px-4 py-12">
+        {/* Backend Status Banner */}
+        {backendStatus !== "ready" && (
+          <div className={`mb-6 p-4 rounded-xl text-center ${
+            backendStatus === "waking" 
+              ? "bg-yellow-500/20 border border-yellow-500/50" 
+              : backendStatus === "error"
+              ? "bg-red-500/20 border border-red-500/50"
+              : "bg-gray-500/20 border border-gray-500/50"
+          }`}>
+            {backendStatus === "waking" && (
+              <div className="flex items-center justify-center gap-3">
+                <svg className="animate-spin h-5 w-5 text-yellow-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span className="text-yellow-300">
+                  ⏳ Despertando el servidor... ({getElapsedTime()}s)
+                  <br />
+                  <span className="text-sm text-yellow-400/70">Mientras tanto, puedes seleccionar tu imagen</span>
+                </span>
+              </div>
+            )}
+            {backendStatus === "error" && (
+              <span className="text-red-300">
+                ⚠️ No se pudo conectar al servidor. 
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="ml-2 underline hover:no-underline"
+                >
+                  Reintentar
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {backendStatus === "ready" && (
+          <div className="mb-6 p-3 rounded-xl bg-green-500/20 border border-green-500/50 text-center">
+            <span className="text-green-300">✅ Servidor listo</span>
+          </div>
+        )}
+
         {/* Header */}
         <header className="text-center mb-12">
           <h1 className="text-5xl font-bold text-white mb-4 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-400">
@@ -83,6 +178,12 @@ export default function Home() {
           <p className="text-xl text-gray-300 max-w-2xl mx-auto">
             Detecta si una imagen fue generada por IA analizando sus patrones de gradiente de luminancia
           </p>
+          <Link 
+            href="/train" 
+            className="mt-4 inline-block text-cyan-400 hover:text-cyan-300 underline"
+          >
+            🎓 Ir a Entrenar el Modelo →
+          </Link>
         </header>
 
         {/* Main Content */}
@@ -119,7 +220,7 @@ export default function Home() {
 
               <button
                 onClick={handleClassify}
-                disabled={!file || loading}
+                disabled={!file || loading || backendStatus !== "ready"}
                 className="mt-6 px-8 py-3 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold rounded-full hover:from-cyan-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105"
               >
                 {loading ? (
@@ -130,6 +231,8 @@ export default function Home() {
                     </svg>
                     Analizando...
                   </span>
+                ) : backendStatus !== "ready" ? (
+                  "⏳ Esperando servidor..."
                 ) : (
                   "🔍 Analizar Imagen"
                 )}

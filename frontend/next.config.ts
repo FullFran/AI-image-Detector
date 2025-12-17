@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: 'export',
-  // basePath: '/AI-image-Detector', // Descomentar si el repo no es username.github.io
+  basePath: '/AI-image-Detector',
+  assetPrefix: '/AI-image-Detector/',
   images: {
     unoptimized: true,
   },
